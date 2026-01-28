@@ -1,49 +1,64 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../models/User.model.js";
-import Otp from "../models/Otp.model.js";
-import { generateOtp, otpExpiry } from "../utils/otp.util.js";
-import { sendSms } from "../services/sms.service.js";
 
-// SEND OTP
-export const sendOtp = async (req, res) => {
-  const { phone } = req.body;
+// SIGNUP
+export const signup = async (req, res) => {
+  const { name, phone, email, password } = req.body;
 
-  if (!phone)
-    return res.status(400).json({ message: "Phone required" });
+  if (!name || !phone || !email || !password) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
 
-  const otp = generateOtp();
-  const otpHash = await bcrypt.hash(otp, 10);
-
-  await Otp.deleteMany({ phone }); // invalidate old OTPs
-
-  await Otp.create({
-    phone,
-    otpHash,
-    expiresAt: otpExpiry(),
+  const existingUser = await User.findOne({
+    $or: [{ email }, { phone }],
   });
 
-  await sendSms(phone, `Your Toggy OTP is ${otp}`);
+  if (existingUser) {
+    return res.status(409).json({ message: "User already exists" });
+  }
 
-  res.json({ message: "OTP sent" });
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const user = await User.create({
+    name,
+    phone,
+    email,
+    password: hashedPassword,
+  });
+
+  const token = jwt.sign(
+    { id: user._id },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  res.status(201).json({
+    message: "Signup successful",
+    token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+    },
+  });
 };
 
-// VERIFY OTP
-export const verifyOtp = async (req, res) => {
-  const { phone, otp } = req.body;
+// LOGIN
+export const login = async (req, res) => {
+  const { email, password } = req.body;
 
-  const record = await Otp.findOne({ phone });
-  if (!record)
-    return res.status(401).json({ message: "OTP expired" });
+  if (!email || !password)
+    return res.status(400).json({ message: "Email and password required" });
 
-  const valid = await bcrypt.compare(otp, record.otpHash);
-  if (!valid)
-    return res.status(401).json({ message: "Invalid OTP" });
+  const user = await User.findOne({ email }).select("+password");
+  if (!user)
+    return res.status(401).json({ message: "Invalid credentials" });
 
-  await Otp.deleteMany({ phone });
-
-  let user = await User.findOne({ phone });
-  if (!user) user = await User.create({ phone });
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch)
+    return res.status(401).json({ message: "Invalid credentials" });
 
   const token = jwt.sign(
     { id: user._id },
@@ -52,8 +67,13 @@ export const verifyOtp = async (req, res) => {
   );
 
   res.json({
-    message: "Authenticated",
+    message: "Login successful",
     token,
-    user,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+    },
   });
 };

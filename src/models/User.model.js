@@ -2,12 +2,26 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      trim: true,
+    },
     phone: {
       type: String,
-      unique: true,
       required: true,
+      unique: true,
     },
-    name: String,
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+    },
+    password: {
+      type: String,
+      required: true,
+      select: false, // VERY IMPORTANT
+    },
     isBlocked: {
       type: Boolean,
       default: false,

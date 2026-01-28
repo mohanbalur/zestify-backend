@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 
 import authRoutes from "./routes/auth.routes.js";
-import userRoutes from "./routes/user.routes.js";
+import profileRoutes from "./routes/profile.routes.js";
 import restaurantRoutes from "./routes/restaurant.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import menuRoutes from "./routes/menu.routes.js";
@@ -24,7 +24,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
-app.use("/api/user", userRoutes);
+app.use("/api/profile", profileRoutes);
 app.use("/api/restaurants", restaurantRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/menu", menuRoutes);
