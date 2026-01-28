@@ -3,11 +3,24 @@ import mongoose from "mongoose";
 const restaurantSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    image: { type: String, required: true }, // Cloudinary URL
+    image: { type: String, required: true },
     rating: { type: Number, default: 0 },
     cuisines: [{ type: String }],
     deliveryTime: { type: Number }, // minutes
     isOpen: { type: Boolean, default: true },
+
+    // 🔥 NEW FIELDS FOR FILTERS
+    isPureVeg: {
+      type: Boolean,
+      default: false
+    },
+    avgPriceForTwo: {
+      type: Number // eg: 300
+    },
+    hasOffer: {
+      type: Boolean,
+      default: false
+    },
 
     location: {
       type: {

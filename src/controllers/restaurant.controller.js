@@ -8,11 +8,19 @@ export const getRestaurants = async (req, res) => {
       cuisine,
       isOpen,
       page = 1,
-      limit = 20
+      limit = 20,
+
+      // 🔥 NEW FILTER PARAMS
+      minRating,
+      isPureVeg,
+      hasOffer,
+      minPrice,
+      maxPrice
     } = req.query;
 
     const query = {};
 
+    // Existing filters
     if (cuisine) {
       query.cuisines = { $in: [cuisine] };
     }
@@ -21,6 +29,26 @@ export const getRestaurants = async (req, res) => {
       query.isOpen = isOpen === "true";
     }
 
+    // 🔥 NEW FILTER LOGIC
+    if (minRating) {
+      query.rating = { $gte: Number(minRating) };
+    }
+
+    if (isPureVeg !== undefined) {
+      query.isPureVeg = isPureVeg === "true";
+    }
+
+    if (hasOffer !== undefined) {
+      query.hasOffer = hasOffer === "true";
+    }
+
+    if (minPrice || maxPrice) {
+      query.avgPriceForTwo = {};
+      if (minPrice) query.avgPriceForTwo.$gte = Number(minPrice);
+      if (maxPrice) query.avgPriceForTwo.$lte = Number(maxPrice);
+    }
+
+    // Sorting
     let sortOption = {};
     if (sort === "rating") sortOption.rating = -1;
     if (sort === "deliveryTime") sortOption.deliveryTime = 1;
@@ -30,11 +58,19 @@ export const getRestaurants = async (req, res) => {
       .skip((page - 1) * limit)
       .limit(Number(limit));
 
-    res.status(200).json(restaurants);
+    const total = await Restaurant.countDocuments(query);
+
+    res.status(200).json({
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      restaurants
+    });
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch restaurants" });
   }
 };
+
 
 // GET /api/restaurants/search?q=
 export const searchRestaurants = async (req, res) => {
