@@ -13,6 +13,7 @@ import addressRoutes from "./routes/address.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import couponRoutes from "./routes/coupon.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import restaurantAdminRoutes from "./routes/restaurantAdmin.routes.js";
 
 
 
@@ -35,6 +36,7 @@ app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/restaurant-admin", restaurantAdminRoutes);
 // Test route
 
 
