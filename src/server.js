@@ -12,6 +12,7 @@ import cartRoutes from "./routes/cart.routes.js"
 import addressRoutes from "./routes/address.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import couponRoutes from "./routes/coupon.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 
 
 
@@ -29,10 +30,11 @@ app.use("/api/restaurants", restaurantRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/addons", addonRoutes);
-app.use("/api/cart",cartRoutes);
+app.use("/api/cart", cartRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/coupons", couponRoutes);
+app.use("/api/admin", adminRoutes);
 // Test route
 
 

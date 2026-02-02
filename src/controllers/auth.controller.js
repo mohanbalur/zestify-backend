@@ -25,10 +25,11 @@ export const signup = async (req, res) => {
     phone,
     email,
     password: hashedPassword,
+    role: "user",
   });
 
   const token = jwt.sign(
-    { id: user._id },
+    { id: user._id, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: "7d" }
   );
@@ -41,6 +42,7 @@ export const signup = async (req, res) => {
       name: user.name,
       email: user.email,
       phone: user.phone,
+      role: user.role,
     },
   });
 };
@@ -61,7 +63,7 @@ export const login = async (req, res) => {
     return res.status(401).json({ message: "Invalid credentials" });
 
   const token = jwt.sign(
-    { id: user._id },
+    { id: user._id, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: "7d" }
   );
@@ -74,6 +76,7 @@ export const login = async (req, res) => {
       name: user.name,
       email: user.email,
       phone: user.phone,
+      role: user.role,
     },
   });
 };

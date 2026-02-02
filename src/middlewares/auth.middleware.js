@@ -28,8 +28,11 @@ export const authMiddleware = async (req, res, next) => {
       return res.status(403).json({ message: "User account is blocked" });
     }
 
-    // 6️⃣ Attach user to request
-    req.user = user;
+    // 6️⃣ Attach user to request (lighter object)
+    req.user = {
+      id: user._id,
+      role: user.role,
+    };
     next();
   } catch (error) {
     // Token expired vs invalid (clean UX)

@@ -32,6 +32,11 @@ const restaurantSchema = new mongoose.Schema(
         type: [Number], // [lng, lat]
         required: true
       }
+    },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true
     }
   },
   { timestamps: true }
