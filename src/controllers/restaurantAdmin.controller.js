@@ -1,6 +1,7 @@
 import Restaurant from "../models/Restaurant.model.js";
 import MenuItem from "../models/MenuItem.model.js";
 import Order from "../models/Order.model.js";
+import { v2 as cloudinary } from "cloudinary";
 
 // ==================================================
 // 1️⃣ RESTAURANT PROFILE MANAGEMENT
@@ -68,8 +69,46 @@ export const getMenu = async (req, res) => {
             return res.status(404).json({ success: false, message: "Restaurant not found" });
         }
 
-        const menu = await MenuItem.find({ restaurant: restaurant._id });
-        res.status(200).json({ success: true, data: menu });
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const query = { restaurant: restaurant._id, isDeleted: false };
+        if (req.query.search) {
+            query.name = { $regex: req.query.search, $options: "i" };
+        }
+
+        const menu = await MenuItem.find(query)
+            .limit(limit)
+            .skip(skip)
+            .sort({ createdAt: -1 });
+
+        const totalCount = await MenuItem.countDocuments(query);
+
+        res.status(200).json({
+            success: true,
+            data: menu,
+            page,
+            limit,
+            totalPages: Math.ceil(totalCount / limit),
+            totalCount
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const uploadImage = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: "No image file provided" });
+        }
+
+        // The file is already uploaded to Cloudinary by the middleware
+        res.status(200).json({
+            success: true,
+            imageUrl: req.file.path || req.file.secure_url || req.file.url
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -82,13 +121,13 @@ export const addMenuItem = async (req, res) => {
             return res.status(404).json({ success: false, message: "Restaurant not found" });
         }
 
-        const { name, description, price, image, category, isVeg, isAvailable } = req.body;
+        const { name, description, price, imageUrl, category, isVeg, isAvailable } = req.body;
         const menuItem = await MenuItem.create({
             restaurant: restaurant._id,
             name,
             description,
             price,
-            image,
+            imageUrl,
             category,
             isVeg,
             isAvailable
@@ -108,11 +147,11 @@ export const updateMenuItem = async (req, res) => {
         }
 
         const { id } = req.params;
-        const { name, description, price, image, category, isVeg, isAvailable } = req.body;
+        const { name, description, price, imageUrl, category, isVeg, isAvailable } = req.body;
 
         const menuItem = await MenuItem.findOneAndUpdate(
-            { _id: id, restaurant: restaurant._id },
-            { name, description, price, image, category, isVeg, isAvailable },
+            { _id: id, restaurant: restaurant._id, isDeleted: false },
+            { name, description, price, imageUrl, category, isVeg, isAvailable },
             { new: true, runValidators: true }
         );
 
@@ -134,13 +173,17 @@ export const deleteMenuItem = async (req, res) => {
         }
 
         const { id } = req.params;
-        const menuItem = await MenuItem.findOneAndDelete({ _id: id, restaurant: restaurant._id });
+        const menuItem = await MenuItem.findOneAndUpdate(
+            { _id: id, restaurant: restaurant._id, isDeleted: false },
+            { isDeleted: true },
+            { new: true }
+        );
 
         if (!menuItem) {
             return res.status(404).json({ success: false, message: "Menu item not found or unauthorized" });
         }
 
-        res.status(200).json({ success: true, message: "Menu item deleted successfully" });
+        res.status(200).json({ success: true, message: "Menu item soft deleted successfully" });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -157,11 +200,31 @@ export const getOrders = async (req, res) => {
             return res.status(404).json({ success: false, message: "Restaurant not found" });
         }
 
-        const orders = await Order.find({ restaurant: restaurant._id })
-            .populate("user", "name phone email")
-            .sort({ createdAt: -1 });
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
 
-        res.status(200).json({ success: true, data: orders });
+        const query = { restaurant: restaurant._id };
+        if (req.query.status) {
+            query.orderStatus = req.query.status;
+        }
+
+        const orders = await Order.find(query)
+            .populate("user", "name phone email")
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .skip(skip);
+
+        const totalCount = await Order.countDocuments(query);
+
+        res.status(200).json({
+            success: true,
+            data: orders,
+            page,
+            limit,
+            totalPages: Math.ceil(totalCount / limit),
+            totalCount
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -229,37 +292,74 @@ export const getStats = async (req, res) => {
         }
 
         const restaurantId = restaurant._id;
-
-        // Start of today
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
+        // Core stats
         const totalOrders = await Order.countDocuments({ restaurant: restaurantId });
-        const todayOrders = await Order.countDocuments({
-            restaurant: restaurantId,
-            createdAt: { $gte: today }
-        });
+        const todayOrders = await Order.countDocuments({ restaurant: restaurantId, createdAt: { $gte: today } });
+        const pendingOrders = await Order.countDocuments({ restaurant: restaurantId, orderStatus: "PLACED" });
+        const cancelledOrders = await Order.countDocuments({ restaurant: restaurantId, orderStatus: "CANCELLED" });
 
+        // Revenue stats
         const revenueStats = await Order.aggregate([
             { $match: { restaurant: restaurantId, paymentStatus: "PAID" } },
             {
                 $group: {
                     _id: null,
-                    totalRevenue: { $sum: "$bill.grandTotal" },
-                    todayRevenue: {
-                        $sum: {
-                            $cond: [{ $gte: ["$createdAt", today] }, "$bill.grandTotal", 0]
-                        }
-                    }
+                    totalRevenue: { $sum: "$bill.grandTotal" }
                 }
             }
+        ]);
+
+        // Top selling items
+        const topSellingItems = await Order.aggregate([
+            { $match: { restaurant: restaurantId } },
+            { $unwind: "$items" },
+            {
+                $group: {
+                    _id: "$items.menuItem",
+                    name: { $first: "$items.name" },
+                    count: { $sum: "$items.quantity" }
+                }
+            },
+            { $sort: { count: -1 } },
+            { $limit: 5 }
+        ]);
+
+        // Weekly revenue chart
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        sevenDaysAgo.setHours(0, 0, 0, 0);
+
+        const weeklyRevenue = await Order.aggregate([
+            {
+                $match: {
+                    restaurant: restaurantId,
+                    paymentStatus: "PAID",
+                    createdAt: { $gte: sevenDaysAgo }
+                }
+            },
+            {
+                $group: {
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                    revenue: { $sum: "$bill.grandTotal" }
+                }
+            },
+            { $sort: { "_id": 1 } }
         ]);
 
         const stats = {
             totalOrders,
             todayOrders,
+            pendingOrders,
+            cancelledOrders,
             totalRevenue: revenueStats[0]?.totalRevenue || 0,
-            todayRevenue: revenueStats[0]?.todayRevenue || 0
+            topSellingItems,
+            weeklyRevenue: weeklyRevenue.map(item => ({
+                date: item._id,
+                revenue: item.revenue
+            }))
         };
 
         res.status(200).json({ success: true, data: stats });

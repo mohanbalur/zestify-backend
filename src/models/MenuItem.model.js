@@ -19,7 +19,7 @@ const menuItemSchema = new mongoose.Schema(
       type: Number,
       required: true
     },
-    image: {
+    imageUrl: {
       type: String
     },
     category: {
@@ -33,6 +33,10 @@ const menuItemSchema = new mongoose.Schema(
     isAvailable: {
       type: Boolean,
       default: true
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false
     }
   },
   { timestamps: true }

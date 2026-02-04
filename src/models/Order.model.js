@@ -56,12 +56,19 @@ const orderSchema = new mongoose.Schema(
       enum: ["PENDING", "PAID", "FAILED"],
       default: "PENDING"
     },
+    deliveryPartner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "DeliveryPartner"
+    },
     orderStatus: {
       type: String,
       enum: [
         "PLACED",
         "CONFIRMED",
         "PREPARING",
+        "PENDING_ASSIGNMENT",
+        "ACCEPTED",
+        "PICKED_UP",
         "OUT_FOR_DELIVERY",
         "DELIVERED",
         "CANCELLED"

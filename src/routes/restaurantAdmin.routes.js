@@ -6,6 +6,7 @@ import {
     updateProfile,
     toggleStatus,
     getMenu,
+    uploadImage,
     addMenuItem,
     updateMenuItem,
     deleteMenuItem,
@@ -14,6 +15,7 @@ import {
     updateOrderStatus,
     getStats
 } from "../controllers/restaurantAdmin.controller.js";
+import upload from "../middlewares/upload.middleware.js";
 
 const router = express.Router();
 
@@ -31,6 +33,7 @@ router.patch("/toggle", toggleStatus);
 // 2️⃣ MENU MANAGEMENT
 // ==================================================
 router.get("/menu", getMenu);
+router.post("/menu/upload-image", upload.single("image"), uploadImage);
 router.post("/menu", addMenuItem);
 router.patch("/menu/:id", updateMenuItem);
 router.delete("/menu/:id", deleteMenuItem);
