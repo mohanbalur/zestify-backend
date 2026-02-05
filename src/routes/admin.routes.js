@@ -14,6 +14,8 @@ import {
     deleteDeliveryPartner,
     getAllOrders,
     getStats,
+    getNotifications,
+    updateAdminProfile, // Added this
 } from "../controllers/admin.controller.js";
 
 const router = express.Router();
@@ -42,5 +44,11 @@ router.get("/orders", getAllOrders);
 
 // DASHBOARD STATS
 router.get("/stats", getStats);
+
+// NOTIFICATIONS
+router.get("/notifications", getNotifications);
+
+// PROFILE
+router.patch("/profile", updateAdminProfile);
 
 export default router;

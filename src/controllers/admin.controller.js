@@ -189,6 +189,53 @@ export const getAllOrders = async (req, res) => {
 
 // ================= DASHBOARD STATS =================
 
+// ================= NOTIFICATIONS =================
+
+export const getNotifications = async (req, res) => {
+    try {
+        // Fetch recent 5 orders
+        const recentOrders = await Order.find().sort({ createdAt: -1 }).limit(5).select('createdAt _id bill');
+
+        // Fetch recent 5 users
+        const recentUsers = await User.find({ role: 'user' }).sort({ createdAt: -1 }).limit(5).select('createdAt name');
+
+        // Fetch recent 5 restaurants
+        const recentRestaurants = await Restaurant.find().sort({ createdAt: -1 }).limit(5).select('createdAt name');
+
+        // Combine and map to standard structure
+        const notifications = [
+            ...recentOrders.map(o => ({
+                id: o._id,
+                title: `New Order #${o._id.toString().slice(-4)}`,
+                message: `Order of ₹${o.bill?.grandTotal} received`,
+                time: o.createdAt,
+                type: 'order',
+                color: 'text-blue-400'
+            })),
+            ...recentUsers.map(u => ({
+                id: u._id,
+                title: 'New User',
+                message: `${u.name} joined the platform`,
+                time: u.createdAt,
+                type: 'user',
+                color: 'text-emerald-400'
+            })),
+            ...recentRestaurants.map(r => ({
+                id: r._id,
+                title: 'New Restaurant',
+                message: `${r.name} is now a partner`,
+                time: r.createdAt,
+                type: 'restaurant',
+                color: 'text-yellow-400'
+            }))
+        ].sort((a, b) => new Date(b.time) - new Date(a.time));
+
+        res.status(200).json({ success: true, data: notifications });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 export const getStats = async (req, res) => {
     try {
         const totalUsers = await User.countDocuments({ role: "user" });
@@ -215,5 +262,52 @@ export const getStats = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const updateAdminProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { name, email, password } = req.body;
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        if (name) user.name = name;
+
+        if (email && email !== user.email) {
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+                return res.status(400).json({ success: false, message: "Email already in use" });
+            }
+            user.email = email;
+        }
+
+        if (password) {
+            if (password.length < 6) {
+                return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+            }
+            const salt = await bcrypt.genSalt(10);
+            user.password = await bcrypt.hash(password, salt);
+        }
+
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Profile updated successfully. Please login again.",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+
+    } catch (error) {
+        console.error("Update profile error:", error);
+        res.status(500).json({ success: false, message: "Failed to update profile" });
     }
 };
