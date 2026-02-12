@@ -1,6 +1,40 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Environment files
 .env
 .env.local
 .env.production
-logs
+
+# Logs
+logs/
 *.log
+
+# Debug & utility scripts
+debug_*
+test_*
+verify_*
+check_*
+inspect_*
+list_*
+reset_*
+force_*
+stimulate_*
+migrate_*
+update_db_urls.js
+validate_footer.js
+
+# Temporary data (safe)
+*.txt
+
+# Images (test artifacts only)
+*.png
+*.jpg
+*.jpeg
+
+# Scripts folder (one-off tools)
+scripts/
+
+# Editor / OS
+.vscode/
+.DS_Store

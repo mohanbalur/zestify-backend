@@ -30,11 +30,11 @@ const addressSchema = new mongoose.Schema(
     },
     city: {
       type: String,
-      required: true
+      required: false
     },
     state: {
       type: String,
-      required: true
+      required: false
     },
     pincode: {
       type: String,
@@ -44,11 +44,11 @@ const addressSchema = new mongoose.Schema(
       type: {
         type: String,
         enum: ["Point"],
-        default: "Point"
+        required: false
       },
       coordinates: {
         type: [Number], // [lng, lat]
-        required: true
+        required: false
       }
     },
     isDefault: {
@@ -59,7 +59,7 @@ const addressSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-addressSchema.index({ location: "2dsphere" });
+addressSchema.index({ location: "2dsphere" }, { sparse: true });
 
 const Address = mongoose.model("Address", addressSchema);
 export default Address;

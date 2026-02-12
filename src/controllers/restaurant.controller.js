@@ -1,4 +1,6 @@
 import Restaurant from "../models/Restaurant.model.js";
+import MenuItem from "../models/MenuItem.model.js";
+import Category from "../models/Category.model.js";
 
 // GET /api/restaurants
 export const getRestaurants = async (req, res) => {
@@ -77,14 +79,57 @@ export const searchRestaurants = async (req, res) => {
   try {
     const { q } = req.query;
 
+    if (!q) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          restaurants: [],
+          menuItems: []
+        }
+      });
+    }
+
+    // 1. Search Restaurants
     const restaurants = await Restaurant.find({
       $or: [
         { name: { $regex: q, $options: "i" } },
         { cuisines: { $regex: q, $options: "i" } }
-      ]
+      ],
+      isOpen: true,
+      isDeleted: false
     });
 
-    res.status(200).json(restaurants);
+    // 2. Search Menu Items
+    const menuItems = await MenuItem.find({
+      $or: [
+        { name: { $regex: q, $options: "i" } },
+        { category: { $regex: q, $options: "i" } },
+        { description: { $regex: q, $options: "i" } }
+      ],
+      isAvailable: true,
+      isDeleted: false
+    }).populate('restaurant');
+
+    const validMenuItems = menuItems.filter(item =>
+      item.restaurant &&
+      !item.restaurant.isDeleted &&
+      item.restaurant.isOpen
+    );
+
+    // 3. Search Categories
+    const categories = await Category.find({
+      name: { $regex: q, $options: "i" },
+      isActive: true
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        restaurants,
+        menuItems: validMenuItems,
+        categories
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: "Search failed" });
   }
@@ -114,17 +159,52 @@ export const getNearbyRestaurants = async (req, res) => {
       return res.status(400).json({ message: "Latitude and longitude required" });
     }
 
-    const restaurants = await Restaurant.find({
-      location: {
-        $near: {
-          $geometry: {
+    // In a real production app at scale, we'd use an aggregation pipeline 
+    // to match against each restaurant's individual serviceRadius.
+    // For this implementation, we fetch nearby and sort by distance.
+    // Use aggregation to calculate distance and filter by individual serviceRadius
+    const restaurants = await Restaurant.aggregate([
+      {
+        $geoNear: {
+          near: {
             type: "Point",
             coordinates: [Number(lng), Number(lat)]
           },
-          $maxDistance: 5000 // 5km
+          distanceField: "distance", // meters
+          maxDistance: 20000, // Hard limit 20km
+          spherical: true,
+          query: { isDeleted: false, isOpen: true }
+        }
+      },
+      {
+        $addFields: {
+          distanceKm: { $divide: ["$distance", 1000] }
+        }
+      },
+      {
+        $match: {
+          $expr: {
+            $lte: ["$distanceKm", { $ifNull: ["$serviceRadius", 5] }]
+          }
+        }
+      },
+      {
+        $sort: { distance: 1 }
+      },
+      {
+        $project: {
+          name: 1,
+          location: 1,
+          distanceKm: 1,
+          serviceRadius: 1,
+          rating: 1,
+          cuisines: 1,
+          avgPriceForTwo: 1,
+          imageUrl: 1,
+          isOpen: 1
         }
       }
-    });
+    ]);
 
     res.status(200).json(restaurants);
   } catch (error) {

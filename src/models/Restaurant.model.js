@@ -4,6 +4,7 @@ const restaurantSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     image: { type: String, required: true },
+    heroImageUrl: { type: String }, // NEW: Restaurant specific hero image
     rating: { type: Number, default: 0 },
     cuisines: [{ type: String }],
     deliveryTime: { type: Number }, // minutes
@@ -21,15 +22,24 @@ const restaurantSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    serviceRadius: {
+      type: Number,
+      default: 5 // Default 5km
+    },
 
     location: {
       type: {
         type: String,
-        enum: ["Point"],
+        enum: ["Point"], // 'location.type' must be 'Point'
         default: "Point"
       },
       coordinates: {
-        type: [Number], // [lng, lat]
+        type: [Number],
+        required: true,
+        default: [0, 0] // Default coordinates to avoid validation error if not provided
+      },
+      address: {
+        type: String,
         required: true
       }
     },

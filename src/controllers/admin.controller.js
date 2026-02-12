@@ -1,6 +1,7 @@
 import User from "../models/User.model.js";
 import Restaurant from "../models/Restaurant.model.js";
 import Order from "../models/Order.model.js";
+import DeliveryPartner from "../models/DeliveryPartner.model.js";
 import bcrypt from "bcrypt";
 
 // ================= USER MANAGEMENT =================
@@ -61,6 +62,17 @@ export const createRestaurant = async (req, res) => {
     try {
         const { name, image, cuisines, deliveryTime, isPureVeg, avgPriceForTwo, hasOffer, location, adminEmail, adminPassword, adminPhone, adminName } = req.body;
 
+        // Check if user already exists
+        const existingUser = await User.findOne({ $or: [{ email: adminEmail }, { phone: adminPhone }] });
+        if (existingUser) {
+            return res.status(400).json({
+                success: false,
+                message: existingUser.email === adminEmail
+                    ? "User with this email already exists"
+                    : "User with this phone number already exists"
+            });
+        }
+
         // 1. Create Restaurant Admin User
         const hashedPassword = await bcrypt.hash(adminPassword, 10);
         const adminUser = await User.create({
@@ -92,6 +104,23 @@ export const createRestaurant = async (req, res) => {
             data: { restaurant, admin: { id: adminUser._id, role: adminUser.role } }
         });
     } catch (error) {
+        console.error("❌ Create restaurant error details:", {
+            message: error.message,
+            code: error.code,
+            keyPattern: error.keyPattern,
+            keyValue: error.keyValue,
+            stack: error.stack
+        });
+        console.log("Request Body:", JSON.stringify(req.body, null, 2));
+
+        // Return more specific error to frontend if possible
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: `Duplicate key error: ${JSON.stringify(error.keyValue)} already exists.`
+            });
+        }
+
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -103,15 +132,20 @@ export const toggleRestaurantStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: "Restaurant not found" });
         }
 
-        restaurant.isOpen = !restaurant.isOpen;
-        await restaurant.save();
+        // Use findByIdAndUpdate to bypass full document validation for a simple toggle
+        const updatedRestaurant = await Restaurant.findByIdAndUpdate(
+            req.params.id,
+            { isOpen: !restaurant.isOpen },
+            { new: true, runValidators: false }
+        );
 
         res.status(200).json({
             success: true,
-            message: `Restaurant ${restaurant.isOpen ? "activated" : "deactivated"} successfully`,
-            data: restaurant
+            message: `Restaurant ${updatedRestaurant.isOpen ? "activated" : "deactivated"} successfully`,
+            data: updatedRestaurant
         });
     } catch (error) {
+        console.error("❌ Toggle status error:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -122,7 +156,13 @@ export const deleteRestaurant = async (req, res) => {
         if (!restaurant) {
             return res.status(404).json({ success: false, message: "Restaurant not found" });
         }
-        res.status(200).json({ success: true, message: "Restaurant deleted successfully" });
+
+        // Also delete the associated admin user
+        if (restaurant.owner) {
+            await User.findByIdAndDelete(restaurant.owner);
+        }
+
+        res.status(200).json({ success: true, message: "Restaurant and its Admin deleted successfully" });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -132,7 +172,19 @@ export const deleteRestaurant = async (req, res) => {
 
 export const getAllDeliveryPartners = async (req, res) => {
     try {
-        const partners = await User.find({ role: "delivery_partner" }).select("-password");
+        const profiles = await DeliveryPartner.find()
+            .populate("user", "email");
+
+        // Map to format expected by AdminDeliveryPartners.jsx
+        const partners = profiles.map(p => ({
+            _id: p.user?._id || p._id, // User ID for deletion compatibility
+            name: p.name,
+            email: p.user?.email || "N/A",
+            phone: p.phone,
+            vehicleNumber: p.vehicleNumber,
+            isOnline: p.isOnline
+        }));
+
         res.status(200).json({ success: true, data: partners });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -141,10 +193,11 @@ export const getAllDeliveryPartners = async (req, res) => {
 
 export const createDeliveryPartner = async (req, res) => {
     try {
-        const { name, email, phone, password } = req.body;
+        const { name, email, phone, password, vehicleNumber } = req.body;
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const partner = await User.create({
+        // 1. Create User Account
+        const user = await User.create({
             name,
             email,
             phone,
@@ -152,12 +205,26 @@ export const createDeliveryPartner = async (req, res) => {
             role: "delivery_partner"
         });
 
+        // 2. Create Delivery Partner Profile
+        const partnerProfile = await DeliveryPartner.create({
+            user: user._id,
+            name,
+            phone,
+            vehicleNumber: vehicleNumber || "N/A"
+        });
+
         res.status(201).json({
             success: true,
-            message: "Delivery partner created successfully",
-            data: { id: partner._id, name: partner.name, role: partner.role }
+            message: "Delivery partner created successfully with profile",
+            data: {
+                id: user._id,
+                name: user.name,
+                role: user.role,
+                profile: partnerProfile
+            }
         });
     } catch (error) {
+        console.error("❌ Create delivery partner error:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

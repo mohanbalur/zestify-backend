@@ -1,21 +1,56 @@
 import DeliveryPartner from "../models/DeliveryPartner.model.js";
+import User from "../models/User.model.js";
 import Order from "../models/Order.model.js";
 
-// Helper to get partner from user ID
+const PROFILE_FIELDS = "name phone vehicleNumber isOnline totalDeliveries totalEarnings walletBalance";
+
 const getPartner = async (userId) => {
-    return await DeliveryPartner.findOne({ user: userId });
+    let partner = await DeliveryPartner.findOne({ user: userId });
+
+    if (!partner) {
+        console.log(`Lazy creating partner profile for user: ${userId}`);
+        const user = await User.findById(userId);
+        if (user && user.role === "delivery_partner") {
+            partner = await DeliveryPartner.create({
+                user: user._id,
+                name: user.name,
+                phone: user.phone,
+                vehicleNumber: "PENDING"
+            });
+        }
+    }
+    return partner;
 };
 
-// 1️⃣ PROFILE MANAGEMENT
+const respondInternalError = (res) => {
+    return res.status(500).json({
+        success: false,
+        message: "Internal server error"
+    });
+};
+
 export const getProfile = async (req, res) => {
     try {
         const partner = await getPartner(req.user.id);
         if (!partner) {
-            return res.status(404).json({ success: false, message: "Delivery partner profile not found" });
+            return res.status(404).json({ success: false, message: "Delivery partner record not found" });
         }
-        res.status(200).json({ success: true, data: partner });
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                name: partner.name,
+                phone: partner.phone,
+                vehicleNumber: partner.vehicleNumber,
+                isOnline: partner.isOnline,
+                totalDeliveries: partner.totalDeliveries,
+                totalEarnings: partner.totalEarnings,
+                walletBalance: partner.walletBalance
+            }
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.error("getProfile error:", error);
+        return respondInternalError(res);
     }
 };
 
@@ -25,67 +60,103 @@ export const updateProfile = async (req, res) => {
         const partner = await DeliveryPartner.findOneAndUpdate(
             { user: req.user.id },
             { name, phone, vehicleNumber },
-            { new: true, runValidators: true }
+            { new: true, runValidators: true, upsert: true }
         );
 
-        if (!partner) {
-            return res.status(404).json({ success: false, message: "Delivery partner profile not found" });
-        }
-
-        res.status(200).json({ success: true, message: "Profile updated", data: partner });
+        return res.status(200).json({
+            success: true,
+            message: "Profile updated",
+            data: {
+                name: partner.name,
+                phone: partner.phone,
+                vehicleNumber: partner.vehicleNumber,
+                isOnline: partner.isOnline,
+                totalDeliveries: partner.totalDeliveries,
+                totalEarnings: partner.totalEarnings,
+                walletBalance: partner.walletBalance
+            }
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
-// 2️⃣ ONLINE / OFFLINE TOGGLE
 export const toggleOnline = async (req, res) => {
     try {
         const partner = await getPartner(req.user.id);
         if (!partner) {
-            return res.status(404).json({ success: false, message: "Delivery partner profile not found" });
+            return res.status(404).json({ success: false, message: "Delivery partner record not found" });
         }
 
         partner.isOnline = !partner.isOnline;
         await partner.save();
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             message: `Partner is now ${partner.isOnline ? "ONLINE" : "OFFLINE"}`,
-            isOnline: partner.isOnline
+            isOnline: partner.isOnline,
+            data: {
+                name: partner.name,
+                phone: partner.phone,
+                vehicleNumber: partner.vehicleNumber,
+                isOnline: partner.isOnline,
+                totalDeliveries: partner.totalDeliveries,
+                totalEarnings: partner.totalEarnings,
+                walletBalance: partner.walletBalance
+            }
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
-// 3️⃣ ASSIGNED ORDERS
 export const getOrders = async (req, res) => {
     try {
+        console.log(`📡 getOrders API hit by User: ${req.user.id}`);
         const partner = await getPartner(req.user.id);
         if (!partner) {
             return res.status(404).json({ success: false, message: "Partner record for user not found" });
         }
 
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
-        const query = { deliveryPartner: partner._id };
+        const query = {
+            $or: [
+                { deliveryPartner: partner._id },
+                { deliveryPartner: null, orderStatus: "PENDING_ASSIGNMENT" }
+            ]
+        };
+
+        console.log(`🔍 getOrders Query for Partner ${partner._id}:`, JSON.stringify(query, null, 2));
+
+        // Explicitly check for status from query
         if (req.query.status) {
             query.orderStatus = req.query.status;
+            delete query.$or;
+            if (req.query.status === "PENDING_ASSIGNMENT") {
+                query.deliveryPartner = null;
+            } else {
+                query.deliveryPartner = partner._id;
+            }
+        } else {
+            query.$or[0].orderStatus = { $in: ["ACCEPTED", "PICKED_UP", "OUT_FOR_DELIVERY"] };
         }
 
         const orders = await Order.find(query)
             .populate("restaurant", "name location phone")
             .populate("user", "name phone")
+            .populate("items.menuItem", "name imageUrl price category")
             .sort({ createdAt: -1 })
             .limit(limit)
             .skip(skip);
 
+        console.log(`📦 getOrders Results Count: ${orders.length}`);
+
         const totalCount = await Order.countDocuments(query);
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             data: orders,
             page,
@@ -94,11 +165,10 @@ export const getOrders = async (req, res) => {
             totalCount
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
-// 4️⃣ ACCEPT / REJECT ORDER
 export const acceptOrder = async (req, res) => {
     try {
         const partner = await getPartner(req.user.id);
@@ -119,9 +189,9 @@ export const acceptOrder = async (req, res) => {
         order.deliveryPartner = partner._id;
         await order.save();
 
-        res.status(200).json({ success: true, message: "Order accepted", data: order });
+        return res.status(200).json({ success: true, message: "Order accepted", data: order });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
@@ -141,16 +211,19 @@ export const rejectOrder = async (req, res) => {
         order.deliveryPartner = null;
         await order.save();
 
-        res.status(200).json({ success: true, message: "Order rejected" });
+        return res.status(200).json({ success: true, message: "Order rejected" });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
-// 5️⃣ ORDER STATUS FLOW
 export const updateOrderStatus = async (req, res) => {
     try {
         const partner = await getPartner(req.user.id);
+        if (!partner) {
+            return res.status(404).json({ success: false, message: "Partner record for user not found" });
+        }
+
         const { status } = req.body;
         const allowedStatuses = ["PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"];
 
@@ -163,101 +236,126 @@ export const updateOrderStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: "Order not found or not assigned to you" });
         }
 
+        const previousStatus = order.orderStatus;
         order.orderStatus = status;
         await order.save();
 
-        // If delivered, update partner stats
-        if (status === "DELIVERED") {
+        if (status === "DELIVERED" && previousStatus !== "DELIVERED") {
             const deliveryFee = order.bill?.deliveryFee || 0;
             await DeliveryPartner.findByIdAndUpdate(partner._id, {
                 $inc: {
                     totalDeliveries: 1,
-                    totalEarnings: deliveryFee
+                    totalEarnings: deliveryFee,
+                    walletBalance: deliveryFee
                 }
             });
         }
 
-        res.status(200).json({ success: true, message: `Status updated to ${status}`, data: order });
+        return res.status(200).json({ success: true, message: `Status updated to ${status}`, data: order });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
-// 6️⃣ EARNINGS DASHBOARD
 export const getEarnings = async (req, res) => {
     try {
         const partner = await getPartner(req.user.id);
-        if (!partner) return res.status(404).json({ success: false, message: "Partner not found" });
+        if (!partner) {
+            return res.status(404).json({ success: false, message: "Partner record not found" });
+        }
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // Earnings aggregation
-        const earningsStats = await Order.aggregate([
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const [todayStats] = await Order.aggregate([
             {
                 $match: {
                     deliveryPartner: partner._id,
-                    orderStatus: "DELIVERED"
+                    orderStatus: "DELIVERED",
+                    updatedAt: { $gte: today, $lt: tomorrow }
                 }
             },
             {
                 $group: {
                     _id: null,
-                    totalEarnings: { $sum: "$bill.deliveryFee" },
-                    todayEarnings: {
-                        $sum: {
-                            $cond: [{ $gte: ["$createdAt", today] }, "$bill.deliveryFee", 0]
-                        }
-                    },
+                    todayEarnings: { $sum: { $ifNull: ["$bill.deliveryFee", 0] } },
                     totalDeliveries: { $sum: 1 }
                 }
             }
         ]);
 
-        // Weekly chart data
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
+        const sevenDaysAgo = new Date(today);
+        sevenDaysAgo.setDate(today.getDate() - 6);
 
-        const weeklyEarnings = await Order.aggregate([
+        const weeklyRaw = await Order.aggregate([
             {
                 $match: {
                     deliveryPartner: partner._id,
                     orderStatus: "DELIVERED",
-                    createdAt: { $gte: sevenDaysAgo }
+                    updatedAt: { $gte: sevenDaysAgo, $lt: tomorrow }
                 }
             },
             {
                 $group: {
-                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-                    revenue: { $sum: "$bill.deliveryFee" }
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$updatedAt" } },
+                    earnings: { $sum: { $ifNull: ["$bill.deliveryFee", 0] } },
+                    deliveries: { $sum: 1 }
                 }
             },
-            { $sort: { "_id": 1 } }
+            { $sort: { _id: 1 } }
         ]);
 
-        const stats = {
-            todayEarnings: earningsStats[0]?.todayEarnings || 0,
-            totalEarnings: earningsStats[0]?.totalEarnings || 0,
-            totalDeliveries: earningsStats[0]?.totalDeliveries || 0,
-            weeklyEarningsChart: weeklyEarnings.map(item => ({
-                date: item._id,
-                earnings: item.revenue
-            }))
-        };
+        const weeklyMap = new Map(weeklyRaw.map((item) => [item._id, item]));
+        const weeklyDays = [];
 
-        res.status(200).json({ success: true, data: stats });
+        for (let i = 0; i < 7; i += 1) {
+            const date = new Date(sevenDaysAgo);
+            date.setDate(sevenDaysAgo.getDate() + i);
+            const key = date.toISOString().split("T")[0];
+            const day = weeklyMap.get(key);
+
+            weeklyDays.push({
+                date: key,
+                earnings: day?.earnings || 0,
+                deliveries: day?.deliveries || 0
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                todayEarnings: todayStats?.todayEarnings || 0,
+                totalDeliveries: partner.totalDeliveries || 0,
+                walletBalance: partner.walletBalance || 0,
+                totalEarnings: partner.totalEarnings || 0,
+                weeklyStats: {
+                    from: weeklyDays[0]?.date,
+                    to: weeklyDays[weeklyDays.length - 1]?.date,
+                    days: weeklyDays
+                },
+                weeklyEarningsChart: weeklyDays.map((day) => ({
+                    date: day.date,
+                    earnings: day.earnings
+                }))
+            }
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
-// 7️⃣ DELIVERY HISTORY
 export const getHistory = async (req, res) => {
     try {
         const partner = await getPartner(req.user.id);
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        if (!partner) {
+            return res.status(404).json({ success: false, message: "Partner record for user not found" });
+        }
+
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
         const query = {
@@ -273,14 +371,16 @@ export const getHistory = async (req, res) => {
         }
 
         const history = await Order.find(query)
-            .populate("restaurant", "name location")
+            .populate("restaurant", "name location phone")
+            .populate("user", "name phone")
+            .populate("items.menuItem", "name imageUrl price category")
             .sort({ createdAt: -1 })
             .limit(limit)
             .skip(skip);
 
         const totalCount = await Order.countDocuments(query);
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             data: history,
             page,
@@ -289,11 +389,10 @@ export const getHistory = async (req, res) => {
             totalCount
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };
 
-// 8️⃣ LOCATION TRACKING
 export const updateLocation = async (req, res) => {
     try {
         const { lat, lng } = req.body;
@@ -303,10 +402,12 @@ export const updateLocation = async (req, res) => {
             { new: true }
         );
 
-        if (!partner) return res.status(404).json({ success: false, message: "Partner not found" });
+        if (!partner) {
+            return res.status(404).json({ success: false, message: "Partner not found" });
+        }
 
-        res.status(200).json({ success: true, message: "Location updated", data: partner.location });
+        return res.status(200).json({ success: true, message: "Location updated", data: partner.location });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return respondInternalError(res);
     }
 };

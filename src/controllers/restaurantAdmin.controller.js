@@ -1,6 +1,7 @@
 import Restaurant from "../models/Restaurant.model.js";
 import MenuItem from "../models/MenuItem.model.js";
 import Order from "../models/Order.model.js";
+import DeliveryPartner from "../models/DeliveryPartner.model.js";
 import { v2 as cloudinary } from "cloudinary";
 
 // ==================================================
@@ -21,10 +22,10 @@ export const getProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
     try {
-        const { name, image, cuisines, deliveryTime, isPureVeg, avgPriceForTwo, hasOffer, location } = req.body;
+        const { name, image, heroImageUrl, cuisines, deliveryTime, isPureVeg, avgPriceForTwo, hasOffer, location } = req.body;
         const restaurant = await Restaurant.findOneAndUpdate(
             { owner: req.user.id },
-            { name, image, cuisines, deliveryTime, isPureVeg, avgPriceForTwo, hasOffer, location },
+            { name, image, heroImageUrl, cuisines, deliveryTime, isPureVeg, avgPriceForTwo, hasOffer, location },
             { new: true, runValidators: true }
         );
 
@@ -107,7 +108,8 @@ export const uploadImage = async (req, res) => {
         // The file is already uploaded to Cloudinary by the middleware
         res.status(200).json({
             success: true,
-            imageUrl: req.file.path || req.file.secure_url || req.file.url
+            imageUrl: req.file.path || req.file.secure_url,
+            public_id: req.file.filename || req.file.public_id
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -258,21 +260,46 @@ export const updateOrderStatus = async (req, res) => {
         }
 
         const { orderStatus } = req.body;
-        const allowedStatuses = ["CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"];
+        const allowedStatuses = ["CONFIRMED", "PREPARING", "PENDING_ASSIGNMENT", "ACCEPTED", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"];
 
         if (!allowedStatuses.includes(orderStatus)) {
             return res.status(400).json({ success: false, message: "Invalid order status" });
         }
 
-        const order = await Order.findOneAndUpdate(
-            { _id: req.params.id, restaurant: restaurant._id },
-            { orderStatus },
-            { new: true }
-        );
+        const order = await Order.findOne({ _id: req.params.id, restaurant: restaurant._id });
 
         if (!order) {
             return res.status(404).json({ success: false, message: "Order not found" });
         }
+
+        if (orderStatus === "PENDING_ASSIGNMENT") {
+            const availablePartner = await DeliveryPartner.findOne({ isOnline: true }).sort({ updatedAt: 1 });
+
+            if (availablePartner) {
+                order.deliveryPartner = availablePartner._id;
+                order.orderStatus = "ACCEPTED";
+                await order.save();
+
+                return res.status(200).json({
+                    success: true,
+                    message: "Order assigned to delivery partner",
+                    data: order
+                });
+            }
+
+            order.deliveryPartner = null;
+            order.orderStatus = "PENDING_ASSIGNMENT";
+            await order.save();
+
+            return res.status(200).json({
+                success: true,
+                message: "No online delivery partner available. Order left in pending assignment.",
+                data: order
+            });
+        }
+
+        order.orderStatus = orderStatus;
+        await order.save();
 
         res.status(200).json({ success: true, message: "Order status updated", data: order });
     } catch (error) {
