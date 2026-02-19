@@ -25,7 +25,19 @@ import { authorize } from "./middlewares/role.middleware.js";
 const app = express();
 
 // Middlewares
-app.use(cors());
+const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
