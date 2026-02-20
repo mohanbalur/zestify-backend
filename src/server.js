@@ -28,7 +28,8 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
-  "https://zestify-frontend-v2.vercel.app"
+  "https://zestify-frontend-v2.vercel.app",
+  "https://zestify-frontend-1234.vercel.app"
 ];
 
 const corsOptions = {
